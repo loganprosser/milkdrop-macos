@@ -51,6 +51,24 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
             PRIVATE
             AUDIO_IMPL_HEADER="AudioCaptureImpl_WASAPI.h"
             )
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    # Native macOS system-audio capture via the Core Audio process-tap API
+    # (macOS 14.4+). Taps system output directly, no virtual loopback driver needed.
+    target_sources(projectMSDL
+            PRIVATE
+            AudioCaptureImpl_CoreAudioTap.h
+            AudioCaptureImpl_CoreAudioTap.mm
+            )
+    target_compile_definitions(projectMSDL
+            PRIVATE
+            AUDIO_IMPL_HEADER="AudioCaptureImpl_CoreAudioTap.h"
+            )
+    target_link_libraries(projectMSDL
+            PRIVATE
+            "-framework CoreAudio"
+            "-framework AudioToolbox"
+            "-framework Foundation"
+            )
 else ()
     target_sources(projectMSDL
             PRIVATE

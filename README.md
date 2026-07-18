@@ -7,6 +7,51 @@ It will listen to audio input and produce mesmerizing visuals. Some commands are
 This project is in a bit of a transition state and is in the process of being modernized. There are many rough edges at
 present.
 
+## Fork: native macOS system-audio capture
+
+This fork adds a native macOS audio backend that captures **system audio output** directly
+using the Core Audio process-tap API (macOS 14.4+), the same way the Windows build uses
+WASAPI loopback. You no longer need BlackHole or any other virtual loopback driver to
+visualize what is playing on your Mac.
+
+The backend lives in `src/AudioCaptureImpl_CoreAudioTap.{h,mm}` and is selected automatically
+by CMake on Darwin. See the design doc at
+`docs/superpowers/specs/2026-07-17-macos-system-audio-tap-design.md`.
+
+### macOS build & run
+
+```sh
+# 1. Build libprojectM 4 into a local prefix (see "Building from source" below), then
+#    configure the frontend pointing at Homebrew and that prefix:
+cmake -B build -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH="/opt/homebrew;$HOME/.local/projectM4"
+
+# 2. Build:
+cmake --build build --parallel
+
+# 3. Stage a runnable .app bundle:
+cmake --install build --prefix "$PWD/dist"
+```
+
+**Code signing is required for audio capture.** macOS keys the system-audio-capture (TCC)
+permission to a stable signing identity. An unsigned bundle compiles fine but the permission
+prompt never fires and the tap delivers only silence. Ad-hoc signing is enough for local use:
+
+```sh
+codesign --force --deep --sign - dist/projectM.app
+open dist/projectM.app     # first launch prompts: "projectM would like to record this computer's audio" — click Allow
+```
+
+To re-arm the permission prompt while testing:
+
+```sh
+tccutil reset SystemAudioCaptureRequests org.projectm.frontend.sdl2
+```
+
+> Note: launching the binary directly from a terminal (rather than via `open`) attributes the
+> capture permission to the *terminal* app, not to projectM. Use `open dist/projectM.app` (or
+> Finder) so the grant is attributed to projectM itself.
+
 ## Building from source
 
 ### Build and install libprojectM
