@@ -20,7 +20,10 @@ set -euo pipefail
 # --- configuration (override via environment) ---------------------------------
 PROJECTM_PREFIX="${PROJECTM_PREFIX:-$HOME/.local/projectM4}"
 APP_INSTALL_DIR="${APP_INSTALL_DIR:-$HOME/Applications}"
-PROJECTM_REF="${PROJECTM_REF:-master}"   # libprojectM 4 git ref to build
+# libprojectM 4 git ref to build. Pinned to the exact commit this fork was
+# developed and verified against (reports version 4.2.0; master is ahead of the
+# latest v4.1.7 release tag). Accepts a full SHA, tag, or branch name.
+PROJECTM_REF="${PROJECTM_REF:-2f244141320f6b97b09bf99964cc72a4efdfcfd3}"
 BUILD_JOBS="$(sysctl -n hw.ncpu)"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="projectM.app"
@@ -42,6 +45,13 @@ fi
 command -v brew >/dev/null 2>&1 || die "Homebrew not found. Install it from https://brew.sh first."
 xcode-select -p >/dev/null 2>&1 || die "Xcode Command Line Tools not found. Run: xcode-select --install"
 
+# The Core Audio process-tap API needs an SDK that ships AudioHardwareTapping.h.
+# A macOS 14.4+ machine with outdated Command Line Tools can lack it; fail clearly.
+sdk_path="$(xcrun --show-sdk-path 2>/dev/null || true)"
+if [ -z "$sdk_path" ] || [ ! -f "$sdk_path/System/Library/Frameworks/CoreAudio.framework/Headers/AudioHardwareTapping.h" ]; then
+    die "Your SDK lacks the Core Audio process-tap headers. Update the Command Line Tools (Software Update, or 'sudo rm -rf /Library/Developer/CommandLineTools && xcode-select --install')."
+fi
+
 BREW_PREFIX="$(brew --prefix)"
 
 # --- 1. Homebrew dependencies -------------------------------------------------
@@ -58,10 +68,13 @@ if [ -f "$PROJECTM_PREFIX/include/projectM-4/projectM.h" ] && [ "${1:-}" != "--f
 else
     log "Building libprojectM 4 from source (ref: $PROJECTM_REF)"
     src_dir="$(mktemp -d)/libprojectM4"
-    git clone --recurse-submodules --depth 1 --branch "$PROJECTM_REF" \
-        https://github.com/projectM-visualizer/projectm.git "$src_dir" 2>/dev/null \
-      || git clone --recurse-submodules --depth 1 \
-        https://github.com/projectM-visualizer/projectm.git "$src_dir"
+    # Shallow fetch by ref so a pinned commit SHA (as well as a tag or branch)
+    # resolves reproducibly. GitHub allows fetching an unadvertised SHA directly.
+    git init -q "$src_dir"
+    git -C "$src_dir" remote add origin https://github.com/projectM-visualizer/projectm.git
+    git -C "$src_dir" fetch -q --depth 1 origin "$PROJECTM_REF"
+    git -C "$src_dir" checkout -q FETCH_HEAD
+    git -C "$src_dir" submodule update -q --init --recursive --depth 1
     cmake -S "$src_dir" -B "$src_dir/build" -G "Unix Makefiles" \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX="$PROJECTM_PREFIX" \
