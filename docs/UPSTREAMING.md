@@ -7,8 +7,10 @@ if we chose to, and **whether it's a good idea**. We are *not* opening a PR righ
 
 ## Is it a good idea?
 
-**Short answer: yes, it's worth upstreaming — but only after a hardening pass.** It
-should go up as a *draft* PR first to agree on the approach before polishing.
+**Short answer: yes, and the required delta is smaller than it first appears.** A
+minimal, well-guarded PR could be acceptable; most of the "hardening" below is
+optional polish, not a blocker. Still best to open a *draft* PR first to let the
+maintainers set the bar.
 
 **Why it's worth doing**
 
@@ -20,36 +22,52 @@ should go up as a *draft* PR first to agree on the approach before polishing.
   direct macOS analogue — no new abstractions, one more sibling implementation.
 - It's the "right" native mechanism (Apple's Core Audio process-tap API), not a hack.
 
-**Why not to just PR what we have now**
+**What upstream actually requires (checked, not assumed)**
 
-The current backend is a deliberately minimal v1. Before upstream would (or should)
-accept it, several gaps matter more for a shared project than for a personal build:
+I inspected upstream's build config and CI before writing this:
 
-1. **Backward compatibility is the big one.** The process-tap API is macOS 14.4+.
-   Upstream supports older macOS, but our `src/CMakeLists.txt` unconditionally selects
-   the tap backend on *all* Darwin. Upstream needs a runtime fallback: build both the
-   Core Audio and SDL backends on macOS and choose at runtime (`if (@available(macOS
-   14.4, *))`), falling back to SDL (mic) on older systems. This is the main
-   engineering work and the most likely review blocker.
-2. **Device list.** v1 exposes a single synthetic "System Audio" device. Upstream
-   users will expect the tap to coexist with selectable input devices (mics) and,
-   ideally, per-process capture — matching the richer device lists the WASAPI/SDL
-   backends return.
-3. **Robustness the WASAPI backend already has.** Handle default-output-device
-   changes (re-target the aggregate device), and implement the documented
-   "all-zero samples after a long session" recovery (destroy + recreate both tap and
-   aggregate). WASAPI does hot-plug handling via notification callbacks; a serious
-   macOS backend should be comparable.
-4. **Signing / distribution.** Capture requires a signed bundle (TCC keys the grant to
-   a signing identity). Upstream's release/notarization pipeline and entitlements
-   (hardened runtime) would need the `NSAudioCaptureUsageDescription` key and possibly
-   an audio-input entitlement wired in — coordinate with maintainers.
-5. **Review niceties.** Map `OSStatus` codes to readable strings in logs; confirm the
-   `CATapDescription` initializers/properties used are the non-deprecated ones for the
-   maintainers' minimum-supported SDK.
+- `CMAKE_OSX_DEPLOYMENT_TARGET` is **not set anywhere** — there is no declared minimum
+  macOS version.
+- CI (`buildcheck.yaml` and `release-macos.yaml`) builds and tests **only on
+  `macos-latest`**. There is no test matrix for older macOS versions.
 
-**Effort estimate:** the core capture works and is verified. The remaining work is
-mostly (1) and (3) — call it a few focused sessions plus review iterations.
+So the "must support old macOS" concern is weaker than it sounds — upstream doesn't
+test or advertise old-OS support today. Whether < 14.4 matters is really **a question
+for the maintainers**, not a settled requirement. Given macOS 14.4 shipped in early
+2024, a policy of "system-audio capture requires 14.4+, otherwise fall back to mic"
+is very plausible to be accepted as-is.
+
+**The one thing worth doing regardless: an `@available` guard.**
+
+The process-tap symbols are weak-linked and only present at runtime on macOS 14.4+.
+If the release binary (built on `macos-latest` with no deployment floor) is ever run
+on macOS 13 and calls the tap unconditionally, it will crash with a missing-symbol
+error. Wrapping the tap setup in `if (@available(macOS 14.4, *)) { ... }` — a few
+lines — prevents that. On older systems it can fall back to the existing SDL (mic)
+backend or simply log and idle. This is cheap insurance and good practice, and is the
+*only* backward-compat work that's clearly justified.
+
+**Optional polish (nice-to-have, not blockers)**
+
+- **Device list.** v1 exposes a single synthetic "System Audio" device. Coexisting
+  with selectable input devices (mics), and eventually per-process capture, would
+  match the richer lists the WASAPI/SDL backends return — but a single-source PR is
+  still useful.
+- **Robustness parity with WASAPI.** Handle default-output-device changes (re-target
+  the aggregate device) and the documented "all-zero samples after a long session"
+  recovery (recreate both tap and aggregate). Worth doing eventually; not required for
+  a first useful PR.
+- **Signing / distribution.** Capture needs a signed bundle (TCC keys the grant to a
+  signing identity). Upstream already has a full notarization pipeline
+  (`release-macos.yaml`); it would just need the `NSAudioCaptureUsageDescription` key
+  (added here) and possibly an audio entitlement — a coordination item, not new
+  engineering.
+- **Review niceties.** Map `OSStatus` codes to readable log strings; confirm the
+  `CATapDescription` API used is non-deprecated for the maintainers' SDK.
+
+**Effort estimate:** the core capture works and is verified. A PR-ready version is
+realistically **the current code + an `@available` guard + a maintainer conversation**
+— modest. Everything else is incremental follow-up.
 
 ## How we would do it
 
@@ -84,13 +102,17 @@ mostly (1) and (3) — call it a few focused sessions plus review iterations.
 
 ## Contribution checklist (if/when we do it)
 
-- [ ] Draft PR opened, approach agreed with maintainers
-- [ ] Runtime SDL fallback for macOS < 14.4
+Required for a first PR:
+
+- [ ] Draft PR opened, minimum-macOS policy agreed with maintainers
+- [ ] `@available(macOS 14.4, *)` guard around tap setup (fall back to SDL/mic or idle)
+- [ ] Fork-only files excluded from the PR (`scripts/`, `docs/superpowers/`, this file)
+- [ ] Rebased on upstream `master`; CI green
+
+Optional follow-up (only if maintainers want it):
+
 - [ ] Device list includes inputs (and optionally per-process)
 - [ ] Default-device-change handling
 - [ ] Zero-sample recovery (recreate tap + aggregate)
 - [ ] `OSStatus` → readable log messages
-- [ ] Non-deprecated `CATapDescription` API confirmed for min SDK
 - [ ] Packaging: entitlements + notarization + usage string
-- [ ] Fork-only files excluded from the PR
-- [ ] Rebased on upstream `master`; CI green
