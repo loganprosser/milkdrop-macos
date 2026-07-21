@@ -18,7 +18,36 @@ The backend lives in `src/AudioCaptureImpl_CoreAudioTap.{h,mm}` and is selected 
 by CMake on Darwin. See the design doc at
 `docs/superpowers/specs/2026-07-17-macos-system-audio-tap-design.md`.
 
-### macOS build & run
+### Quick install (recommended)
+
+On any Mac with [Homebrew](https://brew.sh) and Xcode Command Line Tools:
+
+```sh
+git clone https://github.com/loganprosser/milkdrop-macos.git
+cd milkdrop-macos
+./scripts/install-macos.sh
+```
+
+The script installs the Homebrew dependencies, builds libprojectM 4 from source (Homebrew
+only ships v3), builds this frontend, and installs an ad-hoc-signed `projectM.app` into
+`~/Applications`. Re-running is safe. Then:
+
+```sh
+open ~/Applications/projectM.app
+```
+
+On first launch, macOS asks to record this computer's audio — click **Allow** — then play
+any audio and it visualizes your system output.
+
+**Optional alias.** Add to your `~/.zshrc`:
+
+```sh
+alias milkdrop='open "$HOME/Applications/projectM.app"'
+```
+
+Then just run `milkdrop`.
+
+### Manual build & run
 
 ```sh
 # 1. Build libprojectM 4 into a local prefix (see "Building from source" below), then
